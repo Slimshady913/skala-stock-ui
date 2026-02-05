@@ -2,25 +2,39 @@
 import { ref, reactive, onMounted, watch } from 'vue';
 import { usePlayer } from '@/scripts/store-player';
 import apiCall from '@/scripts/api-call';
-// 주식 스토어 임포트
 import { useStock } from '@/scripts/store-stock';
+// 알림창 통일
+import { notifyInfo } from '@/scripts/store-popups';
 
 const stockId = ref('');
 const stockQuantity = ref('');
-const playerMoney = ref('');
+const playerMoney = ref(0); // 숫자로 초기화 (권장)
+
+// 보유 주식 목록에서 행 클릭 시 실행될 함수
+const onHeldStockSelected = (item) => {
+  // item 객체에는 테이블에 표시된 데이터가 들어있습니다.
+  // headers 설정에 따라 key값은 'stockId' 입니다.
+  stockId.value = item.stockId;
+  
+  // (선택사항) 클릭 시 수량을 1로 초기화하거나, 
+  // 판매 편의를 위해 보유 전량(item.quantity)으로 세팅할 수도 있습니다.
+  stockQuantity.value = 1; 
+}
 
 // 스토어 상태 가져오기
 const selectedStockStore = useStock();
 
-// 스토어의 주식 ID가 변경되면 입력창에 반영
+// 스토어의 주식 ID가 변경되면 입력창에 반영 (좌측 목록 클릭 시 연동)
 watch(() => selectedStockStore.id, (newId) => {
   if (newId) {
     stockId.value = newId;
-    // (선택사항) 주식이 바뀌면 수량을 1로 초기화하거나 비울 수 있음
-    // stockQuantity.value = 1; 
+    // (선택사항) 주식이 바뀌면 수량을 1로 초기화하거나 비움
+    // 현재는 1로 초기화
+    stockQuantity.value = 1; 
   }
 });
 
+// 테이블 상태
 const table = reactive({
   headers: [
     { label: "주식ID", value: "stockId" },
@@ -33,74 +47,99 @@ const table = reactive({
 
 const player = usePlayer();
 
+// 플레이어 정보 조회 함수
 const getPlayerInfo = async () => {
-  const url = '/api/players/' + player.playerId;
-  const response = await apiCall.get(url, null, null);
-  if (response.result === apiCall.Response.SUCCESS) {
-    playerMoney.value = response.body.playerMoney
-    table.items = response.body.stocks;
+  try {
+    const url = '/api/players/' + player.playerId;
+    const response = await apiCall.get(url, null, null);
+    if (response.result === apiCall.Response.SUCCESS) {
+      playerMoney.value = response.body.playerMoney;
+      table.items = response.body.stocks;
+    }
+  } catch (error) {
+    console.error("플레이어 정보 조회 실패", error);
   }
 }
 
+// 주식 구매 함수
 const buyPlayerStock = async () => {
-  // 빈 값이나 잘못된 수량 입력 시 API 호출 방지
+  // 유효성 검사 및 알림창 변경
   if (!stockId.value || !stockQuantity.value) {
-    alert("주식 ID와 수량을 입력해주세요.");
+    notifyInfo("주식 ID와 수량을 입력해주세요.");
     return;
   }
   if (Number(stockQuantity.value) <= 0) {
-    alert("수량은 1 이상이어야 합니다.");
+    notifyInfo("수량은 1 이상이어야 합니다.");
     return;
   }
 
-  const url = '/api/players/buy';
-  const requestBody = {
-    playerId: player.playerId,
-    stockId: stockId.value,
-    stockQuantity: stockQuantity.value
-  }
+  try { // 예외 처리
+    const url = '/api/players/buy';
+    const requestBody = {
+      playerId: player.playerId,
+      stockId: stockId.value,
+      stockQuantity: Number(stockQuantity.value) // 숫자로 변환하여 전송
+    }
 
-  await apiCall.post(url, null, requestBody);
-  
-  getPlayerInfo(); // 정보 갱신
-  
-  // 입력 필드 초기화
-  stockId.value = ''
-  stockQuantity.value = ''
+    const response = await apiCall.post(url, null, requestBody);
+    
+    if (response.result === apiCall.Response.SUCCESS) {
+        await getPlayerInfo(); // 정보 갱신
+        
+        // 입력 필드 초기화 및 성공 알림
+        stockId.value = '';
+        stockQuantity.value = '';
+        notifyInfo("매수가 완료되었습니다.");
+    } else {
+        notifyInfo(response.message || "매수에 실패했습니다.");
+    }
+  } catch (error) {
+    console.error(error);
+    notifyInfo("매수 처리 중 오류가 발생했습니다.");
+  }
 }
 
+// 주식 판매 함수
 const sellPlayerStock = async () => {
-  // 빈 값이나 잘못된 수량 입력 시 API 호출 방지
   if (!stockId.value || !stockQuantity.value) {
-    alert("주식 ID와 수량을 입력해주세요.");
+    notifyInfo("주식 ID와 수량을 입력해주세요.");
     return;
   }
   if (Number(stockQuantity.value) <= 0) {
-    alert("수량은 1 이상이어야 합니다.");
+    notifyInfo("수량은 1 이상이어야 합니다.");
     return;
   }
 
-  const url = '/api/players/sell';
-  const requestBody = {
-    playerId: player.playerId,
-    stockId: stockId.value,
-    stockQuantity: stockQuantity.value
-  }
+  try {
+    const url = '/api/players/sell';
+    const requestBody = {
+      playerId: player.playerId,
+      stockId: stockId.value,
+      stockQuantity: Number(stockQuantity.value)
+    }
 
-  await apiCall.post(url, null, requestBody);
-  
-  getPlayerInfo(); // 정보 갱신
-  
-  // 입력 필드 초기화
-  stockId.value = ''
-  stockQuantity.value = ''
+    const response = await apiCall.post(url, null, requestBody);
+    
+    if (response.result === apiCall.Response.SUCCESS) {
+        await getPlayerInfo(); 
+        
+        stockId.value = '';
+        stockQuantity.value = '';
+        notifyInfo("매도가 완료되었습니다.");
+    } else {
+        notifyInfo(response.message || "매도에 실패했습니다.");
+    }
+  } catch (error) {
+    console.error(error);
+    notifyInfo("매도 처리 중 오류가 발생했습니다.");
+  }
 }
 
 onMounted(() => {
   getPlayerInfo()
 })
-</script>
 
+</script>
 <template>
   <div class="row mt-2">
     <span class="fs-4"><i class="bi bi-person m-2"></i>{{ player.playerId }} 플레이어</span>
@@ -123,7 +162,12 @@ onMounted(() => {
       <label class="col-form-label form-control-sm p-1">보유주식목록</label>
     </div>
     <div class="col">
-      <ItemsTable :headers="table.headers" :items="table.items" :nosetting="true" />
+      <ItemsTable 
+        :headers="table.headers" 
+        :items="table.items" 
+        :nosetting="true" 
+        @rowSelected="onHeldStockSelected" 
+      />
     </div>
   </div>
   <div class="row g-2 align-items-center m-2 mt-0">
@@ -134,7 +178,7 @@ onMounted(() => {
       <InlineInput v-model="stockId" placeholder="주식ID" />
     </div>
     <div class="col">
-      <InlineInput v-model="stockQuantity" placeholder="주식수량" />
+      <InlineInput v-model="stockQuantity" type="number" placeholder="주식수량" />
     </div>
     <div class="col d-flex justify-content-start">
       <button class="btn btn-sm btn-outline-primary m-1" @click="buyPlayerStock">주식 구매</button>

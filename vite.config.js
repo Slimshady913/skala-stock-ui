@@ -12,7 +12,7 @@ export default defineConfig({
 	},
 	server: {
 		proxy: {
-			"/api": "http://localhost:9080",
+			"/api": "https://springboot.skala25a.project.skala-ai.com",
 		},
 		cors: false,
 	},
